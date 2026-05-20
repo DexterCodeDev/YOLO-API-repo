@@ -1,0 +1,6 @@
+--extra-index-url https://pytorch.org
+torch
+torchvision
+ultralytics
+fastapi
+uvicorn
