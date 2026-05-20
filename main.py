@@ -1,16 +1,18 @@
-FROM python:3.10-slim
+from fastapi import FastAPI, UploadFile, File
+from ultralytics import YOLO
+import cv2
+import numpy as np
 
-# Install the correct updated system dependencies for OpenCV
-RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
-    && rm -rf /var/lib/apt/lists/*
+app = FastAPI()
+model = YOLO("yolov10n.pt") # Automatically downloads weights
 
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-# Dynamically listen to the port injected by Google Cloud Run
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    contents = await file.read()
+    
+    # Fixed: Use frombuffer instead of fromstring to handle modern numpy operations safely
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    results = model(img)
+    return {"boxes": results[0].boxes.xyxy.tolist()}
