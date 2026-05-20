@@ -20,7 +20,7 @@ def health():
 def detect():
     """
     Endpoint for object detection
-    Expects: JSON with base64 encoded image
+    Expects: Image file in multipart form data
     Returns: JSON with detections
     """
     try:
@@ -67,6 +67,44 @@ def detect_url():
         
         # Run inference from URL
         results = model(data['url'])
+        
+        # Parse results
+        detections = []
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
+                detections.append({
+                    'class': r.names[int(box.cls)],
+                    'confidence': float(box.conf),
+                    'bbox': box.xyxy.tolist()[0]
+                })
+        
+        return jsonify({
+            'detections': detections,
+            'count': len(detections)
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/detect-base64', methods=['POST'])
+def detect_base64():
+    """
+    Endpoint for object detection from base64 encoded image
+    Expects: JSON with 'image' field containing base64 string
+    Returns: JSON with detections
+    """
+    try:
+        data = request.get_json()
+        if 'image' not in data:
+            return jsonify({'error': 'No base64 image provided'}), 400
+        
+        # Decode base64 image
+        image_data = base64.b64decode(data['image'])
+        image = Image.open(BytesIO(image_data))
+        
+        # Run inference
+        results = model(image)
         
         # Parse results
         detections = []
