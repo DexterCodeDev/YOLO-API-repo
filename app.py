@@ -1,130 +1,37 @@
-from flask import Flask, request, jsonify
-from ultralytics import YOLO
+import os
+from fastapi import FastAPI, UploadFile, File
+import uvicorn
 import cv2
 import numpy as np
-import base64
-from io import BytesIO
-from PIL import Image
-import os
+from ultralytics import YOLO
 
-app = Flask(__name__)
+app = FastAPI()
 
-# Load model
+# Load model globally to cache it in the container's memory
 model = YOLO('yolov10b.pt')
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'healthy'}), 200
-
-@app.route('/detect', methods=['POST'])
-def detect():
-    """
-    Endpoint for object detection
-    Expects: Image file in multipart form data
-    Returns: JSON with detections
-    """
-    try:
-        if 'image' not in request.files:
-            return jsonify({'error': 'No image provided'}), 400
-        
-        # Get image from request
-        image_file = request.files['image']
-        image = Image.open(image_file)
-        
-        # Run inference
-        results = model(image)
-        
-        # Parse results
-        detections = []
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                detections.append({
-                    'class': r.names[int(box.cls)],
-                    'confidence': float(box.conf),
-                    'bbox': box.xyxy.tolist()[0]
-                })
-        
-        return jsonify({
-            'detections': detections,
-            'count': len(detections)
-        }), 200
+@app.post("/predict")
+async def predict(file: UploadFile = File(...)):
+    # Read and decode the uploaded image
+    contents = await file.read()
+    nparr = np.frombuffer(contents, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/detect-url', methods=['POST'])
-def detect_url():
-    """
-    Endpoint for object detection from image URL
-    Expects: JSON with 'url' field
-    Returns: JSON with detections
-    """
-    try:
-        data = request.get_json()
-        if 'url' not in data:
-            return jsonify({'error': 'No URL provided'}), 400
-        
-        # Run inference from URL
-        results = model(data['url'])
-        
-        # Parse results
-        detections = []
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                detections.append({
-                    'class': r.names[int(box.cls)],
-                    'confidence': float(box.conf),
-                    'bbox': box.xyxy.tolist()[0]
-                })
-        
-        return jsonify({
-            'detections': detections,
-            'count': len(detections)
-        }), 200
+    # Run inference
+    results = model(img)
     
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/detect-base64', methods=['POST'])
-def detect_base64():
-    """
-    Endpoint for object detection from base64 encoded image
-    Expects: JSON with 'image' field containing base64 string
-    Returns: JSON with detections
-    """
-    try:
-        data = request.get_json()
-        if 'image' not in data:
-            return jsonify({'error': 'No base64 image provided'}), 400
-        
-        # Decode base64 image
-        image_data = base64.b64decode(data['image'])
-        image = Image.open(BytesIO(image_data))
-        
-        # Run inference
-        results = model(image)
-        
-        # Parse results
-        detections = []
-        for r in results:
-            boxes = r.boxes
-            for box in boxes:
-                detections.append({
-                    'class': r.names[int(box.cls)],
-                    'confidence': float(box.conf),
-                    'bbox': box.xyxy.tolist()[0]
-                })
-        
-        return jsonify({
-            'detections': detections,
-            'count': len(detections)
-        }), 200
+    # Extract results
+    boxes = results[0].boxes.xyxy.tolist()
+    classes = results[0].boxes.cls.tolist()
+    confidences = results[0].boxes.conf.tolist()
     
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    return {
+        "boxes": boxes, 
+        "classes": classes, 
+        "confidences": confidences
+    }
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+if __name__ == "__main__":
+    # Cloud Run requires binding to 0.0.0.0 and the injected PORT
+    port = int(os.environ.get("PORT", 8080))
+    uvicorn.run(app, host="0.0.0.0", port=port)
