@@ -1,16 +1,28 @@
 FROM python:3.10-slim
 
-# Install the correct updated system dependencies for OpenCV
+WORKDIR /app
+
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    libgl1 \
-    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+# Copy requirements and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+# Copy application code
+COPY app.py .
 
-# Dynamically listen to the port injected by Google Cloud Run
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Download YOLOv10b model weights
+RUN python -c "from ultralytics import YOLO; YOLO('yolov10b.pt')"
+
+# Set environment variables
+ENV PORT=8080
+ENV PYTHONUNBUFFERED=1
+
+# Run the app
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 4 --timeout 0 app:app
